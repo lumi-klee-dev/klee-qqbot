@@ -1,0 +1,4 @@
+{"manifest_version":2,"version":"1.0.0","name":"可莉语音包","description":"在合适场景发送可莉中文原声语音","author":{"name":"dafeiyu","url":"https://wiki.biligame.com/ys/"},"license":"GPL-v3.0-or-later",
+"urls":{"repository":"https://wiki.biligame.com/ys/","homepage":"https://wiki.biligame.com/ys/","documentation":"https://wiki.biligame.com/ys/","issues":"https://wiki.biligame.com/ys/"},
+"host_application":{"min_version":"1.2.0","max_version":"1.3.99"},"sdk":{"min_version":"2.0.0","max_version":"2.99.99"},"dependencies":[],
+"capabilities":["send.hybrid","config.get"],"i18n":{"default_locale":"zh-CN","locales_path":"_locales","supported_locales":["zh-CN"]},"id":"dafeiyu.klee-voice"}

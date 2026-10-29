@@ -1,0 +1,15 @@
+--- a/napcat.mjs
++++ b/napcat.mjs
+@@ -77356,9 +77356,9 @@
+       longNick: (e?.personal_note ?? r?.longNick) || "",
+       sex: parseInt(e.sex != null && e.sex !== "" ? e.sex.toString() : r?.sex.toString()),
+       birthday: {
+-        birthday_year: r?.birthday_year.toString(),
+-        birthday_month: r?.birthday_month.toString(),
+-        birthday_day: r?.birthday_day.toString()
++        birthday_year: (e?.birthday_year ?? r?.birthday_year).toString(),
++        birthday_month: (e?.birthday_month ?? r?.birthday_month).toString(),
++        birthday_day: (e?.birthday_day ?? r?.birthday_day).toString()
+       },
+       location: void 0
+     });

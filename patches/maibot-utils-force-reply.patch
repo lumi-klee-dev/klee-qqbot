@@ -1,0 +1,21 @@
+--- a/src/chat/utils/utils.py
++++ b/src/chat/utils/utils.py
+@@ -171,6 +171,18 @@
+             if raw_mention_boost not in (None, "") and not isinstance(raw_mention_boost, bool):
+                 reply_probability = float(raw_mention_boost)
+ 
++    # 1b) [dafeiyu patch] 主人/强制回复名单：FORCE_REPLY_USERS 环境变量（逗号分隔）里的人发的每条消息都视为提及
++    try:
++        import os as _os
++        _force = {x.strip() for x in _os.environ.get("FORCE_REPLY_USERS", "").split(",") if x.strip()}
++        _uid = str(getattr(getattr(message.message_info, "user_info", None), "user_id", "") or "")
++        _is_private = getattr(getattr(message, "message_info", None), "group_info", None) is None
++        if _uid and (_uid in _force or _is_private):
++            is_mentioned = True
++            reply_probability = max(reply_probability, 1.0)
++    except Exception:
++        pass
++
+     # 2) 已经在上游设置过的 message.is_at / message.is_mentioned
+     if getattr(message, "is_at", False):
+         is_at = True
