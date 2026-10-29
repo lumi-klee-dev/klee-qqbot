@@ -29,6 +29,55 @@ def _tts_sync(text: str) -> bytes:
     return Path(f).read_bytes()
 
 
+OWNER = "OWNER_QQ_PLACEHOLDER"; GROUP = "GROUP_ID_PLACEHOLDER"; NAPCAT = "http://127.0.0.1:3000/"
+NAMES = {"慧姐姐": "FRIEND_QQ_PLACEHOLDER", "慧": "FRIEND_QQ_PLACEHOLDER", "昭昭": "FRIEND_QQ_PLACEHOLDER", "林哥哥": OWNER, "主人": OWNER,
+         "群": "group:" + GROUP, "群里": "group:" + GROUP, "唠叨小窝": "group:" + GROUP, GROUP: "group:" + GROUP}
+
+
+def _nc(ep, body):
+    r = urllib.request.Request(NAPCAT + ep, json.dumps(body).encode(), {"Content-Type": "application/json"})
+    with urllib.request.urlopen(r, timeout=30) as f:
+        return json.loads(f.read())
+
+
+def relay_sync(sender: str, target: str, text: str, as_voice: bool):
+    """owner-only relay. returns (ok, msg)"""
+    if str(sender).strip() != OWNER:
+        return False, "拒绝：只有林哥哥(OWNER_QQ_PLACEHOLDER)可以让可莉给别人传话/发语音。请用可莉的口吻礼貌拒绝，绝不能说已经发了。"
+    tgt = str(target or "").strip().lstrip("@")
+    tgt = NAMES.get(tgt, tgt)
+    if not tgt.startswith("group:") and not tgt.isdigit():
+        fl = _nc("get_friend_list", {}).get("data") or []
+        hit = [f for f in fl if tgt and tgt in (str(f.get("remark") or ""), str(f.get("nickname") or ""))]
+        if not hit:
+            return False, f"失败：找不到叫“{tgt}”的好友，没有发送。要告诉林哥哥没发出去，问他QQ号。"
+        tgt = str(hit[0]["user_id"])
+    if tgt.startswith("group:"):
+        if tgt[6:] != GROUP:
+            return False, "失败：只能发到唠叨小窝群，没有发送。"
+        ep, k = "send_group_msg", {"group_id": int(GROUP)}
+    else:
+        fl = _nc("get_friend_list", {}).get("data") or []
+        if tgt not in {str(f.get("user_id")) for f in fl}:
+            return False, f"失败：{tgt} 不是可莉的QQ好友，没有发送。"
+        ep, k = "send_private_msg", {"user_id": int(tgt)}
+    say = (text or "").strip()
+    if not say:
+        return False, "失败：没有要发的内容。"
+    if as_voice:
+        try:
+            b = _tts_sync(clean(say) or say[:TEXT_CAP])
+            msg = [{"type": "record", "data": {"file": "base64://" + base64.b64encode(b).decode()}}]
+        except Exception as e:
+            return False, f"失败：语音生成出错({e})，没有发送。"
+    else:
+        msg = [{"type": "text", "data": {"text": say[:500]}}]
+    r = _nc(ep, {**k, "message": msg})
+    if r.get("retcode") == 0:
+        return True, f"已成功{'用语音' if as_voice else ''}发给 {tgt}：{say}"
+    return False, f"失败：NapCat 返回 {r.get('retcode')} {r.get('wording') or r.get('message')}，没有发送。"
+
+
 class Sec(PluginConfigBase):
     enabled: bool = Field(default=True, description="是否启用")
     config_version: str = Field(default="1.0.0", description="配置版本")
@@ -119,6 +168,30 @@ class KleeVoicePlugin(MaiBotPlugin):
             self._last[stream_id] = now
             return True, f"发送了语音：{desc}"
         return False, "语音发送失败"
+
+    @Action(
+        "send_to_friend",
+        description="帮林哥哥把一段话（文字或可莉语音）发给另一个人或唠叨小窝群。只有林哥哥(QQOWNER_QQ_PLACEHOLDER)让你传话/给某人发消息或语音时才用",
+        activation_type=ActivationType.ALWAYS,
+        action_parameters={
+            "target": "接收者：QQ号，或已知称呼（慧姐姐、林哥哥、群/唠叨小窝）",
+            "text": "要发给对方的话（可莉口吻）",
+            "as_voice": "要发语音填 yes，发文字填 no",
+        },
+        action_require=[
+            "林哥哥要你给某人（如慧姐姐）发消息、传话、发语音或在群里说一句时使用，target 填对方",
+            "只有动作返回成功后才能说已经发过去了；失败要如实告诉林哥哥",
+            "别人让你给第三个人发消息时不要用，用可莉的口吻礼貌拒绝",
+        ],
+        associated_types=["text", "voice"],
+    )
+    async def handle_relay(self, stream_id: str = "", target: str = "", text: str = "", as_voice: str = "no", **kwargs):
+        sender = str(kwargs.get("user_id") or "")
+        voice = str(as_voice).lower() in ("yes", "true", "是", "1")
+        try:
+            return await asyncio.wait_for(asyncio.to_thread(relay_sync, sender, target, text, voice), 100)
+        except Exception as e:
+            return False, f"失败：{e}，没有发送。"
 
 def create_plugin():
     return KleeVoicePlugin()

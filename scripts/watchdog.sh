@@ -18,6 +18,7 @@ fail=0
 while true; do
   if napcat_ok; then fail=0; else fail=$((fail+1)); log "NapCat 检查失败 ($fail/2)"; fi
   [ $fail -ge 2 ] && { do_restart "NapCat 连续两次失败" ./start.sh; fail=0; }
+  curl -s -m 5 -o /dev/null http://127.0.0.1:8765/ || { log "TTS 不在，重启"; [ $DRY = 1 ] || /workspace/klee_tts/start_tts.sh >> $LOG 2>&1; }
   brain_ok || do_restart "MaiBot 进程不在" ./restart-brain.sh
   [ $DRY = 1 ] && { napcat_ok && echo napcat=OK || echo napcat=DOWN; brain_ok && echo brain=OK || echo brain=DOWN; }
   [ $ONCE = 1 ] && exit 0; sleep 60

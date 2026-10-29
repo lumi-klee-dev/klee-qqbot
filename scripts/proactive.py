@@ -1,4 +1,4 @@
-"""可莉主动性：群冷场时开话题、偶尔私聊主人。通过 NapCat HTTP 发送，每次最多 1 次 LLM 调用，失败用内置台词。
+"""可莉主动性：群冷场时开话题、偶尔私聊主人。通过 NapCat HTTP 发送，每次最多 1 次 LLM 调用，失败则不发。
 import os
 调频率改下面 CONFIG 后: screen -S klee_proactive -X quit; ./start.sh"""
 import json, random, time, datetime, base64, os, urllib.request
@@ -7,8 +7,8 @@ D = Path("/workspace/dafeiyu")
 CONFIG = dict(
     GROUP=int(os.environ.get("GROUP_ID","0")), OWNER=int(os.environ.get("OWNER_QQ","0")), SELF=int(os.environ.get("BOT_QQ","0")),
     GROUP_QUIET_MIN=90,      # 群里安静多少分钟算冷场
-    GROUP_MAX_PER_DAY=4, GROUP_MIN_GAP_MIN=120, GROUP_HOURS=("09:00", "23:30"),
-    PRIV_MAX_PER_DAY=2, PRIV_MIN_GAP_MIN=300, PRIV_HOURS=("08:30", "23:30"),
+    GROUP_MAX_PER_DAY=4, GROUP_MIN_GAP_MIN=120, GROUP_HOURS=("09:00", "22:30"),
+    PRIV_MAX_PER_DAY=2, PRIV_MIN_GAP_MIN=300, PRIV_HOURS=("08:30", "22:30"),
     PRIV_CHANCE=0.03,         # 每次检查(5分钟)私聊触发概率
     GROUP_CHANCE=0.25,        # 冷场后每次检查触发概率
     VOICE_CHANCE=0.3, CHECK_SEC=300)
@@ -41,18 +41,24 @@ def last_group_ts():
     except Exception: pass
     g = recent_group(1)
     return time.mktime(time.strptime(g[-1]["t"], "%Y-%m-%d %H:%M:%S")) if g else 0
+CHAIN = ["deepseek-flash", "deepseek-v4-flash", "sensenova-6.8-flash-lite", "glm-5.2", "kimi-k3"]
 def llm(prompt):
     env = dict(l.split("=", 1) for l in (D / "keys.env").read_text().splitlines() if "=" in l and not l.startswith("#"))
-    body = {"model": env.get("CHAT_MODEL", "glm-5.2").strip(), "messages": [
-        {"role": "system", "content": (D / "persona.toml").read_text("utf-8") + "\n你就是可莉，只输出要发出的那一句话(30字以内)，不要引号、不要解释、绝不承认自己是AI。"},
-        {"role": "user", "content": prompt}], "max_tokens": 200, "temperature": 0.9}
-    r = urllib.request.Request("https://token.sensenova.cn/v1/chat/completions", json.dumps(body).encode(),
-        {"Content-Type": "application/json", "Authorization": "Bearer " + env["SENSENOVA_API_KEY"].strip()})
-    t = json.loads(urllib.request.urlopen(r, timeout=60).read())["choices"][0]["message"]["content"].strip()
-    t = t.split("</think>")[-1].strip().strip('"“”')
-    return t if 0 < len(t) <= 80 else None
+    chain = [x for x in env.get("SENSENOVA_CHAIN", "").strip().split(",") if x] or CHAIN
+    for model in chain:
+        body = {"model": model, "messages": [
+            {"role": "system", "content": (D / "persona.toml").read_text("utf-8") + "\n主人QQOWNER_QQ_PLACEHOLDER是林哥哥，可莉叫他林哥哥。你就是可莉，只输出要发出的那一句话(30字以内)，不要引号、不要解释、绝不承认自己是AI。"},
+            {"role": "user", "content": prompt}], "max_tokens": 600, "temperature": 0.9}
+        r = urllib.request.Request("https://token.sensenova.cn/v1/chat/completions", json.dumps(body).encode(),
+            {"Content-Type": "application/json", "Authorization": "Bearer " + env["SENSENOVA_API_KEY"].strip()})
+        try:
+            t = json.loads(urllib.request.urlopen(r, timeout=60).read())["choices"][0]["message"].get("content") or ""; t = t.strip()
+        except Exception as e: print(now(), "llm失败", model, e, flush=True); continue
+        t = t.split("</think>")[-1].strip().strip('"“”')
+        if 4 <= len(t) <= 80: return t
+    return None
 def compose(kind, s):
-    h = now().hour; tod = "早上" if h < 11 else "中午" if h < 14 else "下午" if h < 18 else "晚上"
+    h = now().hour; tod = "早上" if 6 <= h < 11 else "中午" if 11 <= h < 14 else "下午" if 14 <= h < 18 else "晚上"
     try:
         if kind == "g":
             hist = "\n".join(f'{m["name"]}({m["user"]}): {m["text"][:60]}' for m in recent_group(20) if "CQ:" not in m["text"][:4])
@@ -62,12 +68,10 @@ def compose(kind, s):
         t = llm(p)
         if t and t not in s["sent"]: return t
     except Exception as e: print(now(), "llm失败", e, flush=True)
-    c = [x for x in (POOL_G if kind == "g" else POOL_P) if x not in s["sent"]]
-    if kind == "p" and now().hour < 11: c = [POOL_P[0]] if POOL_P[0] not in s["sent"][-4:] else c
-    return random.choice(c) if c else None
+    return None  # LLM 失败就什么都不发
 def voice():
     idx = json.loads((D / "klee/voice_pack/index.json").read_text("utf-8")); h = now().hour
-    want = "morning" if h < 11 else "noon" if h < 14 else "evening" if h >= 18 else "random"
+    want = "morning" if 6 <= h < 11 else "noon" if h < 14 else "evening" if h >= 18 else "random"
     c = [x for x in idx if want in x.get("tags", [])] or idx; f = D / "klee/voice_pack" / random.choice(c)["file"]
     return {"type": "record", "data": {"file": "base64://" + base64.b64encode(f.read_bytes()).decode()}}
 def send(kind, text):
